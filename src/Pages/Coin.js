@@ -3,6 +3,7 @@ import {Link} from 'react-router-dom';
 import Chart from "../Components/Chart";
 import { $numberWithCommas, $currencySymbol, returnMultiple } from '../Utils/Helpers';
 import {translationStrings} from '../Utils/i18n';
+import PriceAlert from "../Components/PriceAlert";
 
 class Coin extends Component {
   render() {
@@ -87,6 +88,19 @@ class Coin extends Component {
             <Chart chartColor={chartColor} exchangeRate={this.props.exchangeRate} ticker={coin} />
           </div>
 
+          <div style={{ marginTop: 12 }}>
+            <PriceAlert
+              coinz={this.props.coinz}
+              currency={this.props.currency}
+              exchangeRate={this.props.exchangeRate}
+              alerts={this.props.alerts}
+              addAlert={this.props.addAlert}
+              updateAlertStatus={this.props.updateAlertStatus}
+              removeAlert={this.props.removeAlert}
+              coin={coin}
+            />
+          </div>
+
           {changellyCoins.includes(coin.toUpperCase()) &&
           <div className="listCoin">
             <a
@@ -113,7 +127,7 @@ class Coin extends Component {
             <a
               target="_blank"
               rel="noopener noreferrer"
-              href={"https://changelly.com/widget/v1?auth=email&from=ETH&to=BTC&merchant_id=db206cefa712&address=&amount=1&ref_id=db206cefa712&color=" + chartColor.replace("#", "")}>
+              href={"https://changelly.com/widget/v1?auth=email&from=ETH&to=BTC&merchant_id=db206cefa712&address=&amount=1&ref_id=db206cefa712&color=" + chartColor.replace("#", "")}> 
               <button className="btn-buy" style={headStyle}>
                 <i className="fa fa-line-chart" aria-hidden="true"></i> Trade Coins
               </button>

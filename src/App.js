@@ -17,9 +17,11 @@ import SupportedCoins from './Pages/SupportedCoins';
 
 import './App.css';
 import Blockstack from "./Components/Blockstack";
-import NotificationSystem from "./Components/Notifications";
+import NotificationSystem, { showNotification } from "./Components/Notifications";
 
 import { translationStrings } from './Utils/i18n';
+import { shouldTriggerAlert } from './Utils/alertHelpers';
+import Analytics from './Pages/Analytics';
 const string = translationStrings();
 
 const supportedCurrencies = [
@@ -75,6 +77,7 @@ class App extends Component {
       blockstack: isUserSignedIn(), //returns true if user is logged in
       gaiaStorage: 'coinfox.json',
       supportedCurrencies: supportedCurrencies,
+      alerts: [],
     }
   }
 
@@ -260,11 +263,10 @@ class App extends Component {
   //   return totalPortfolio;
   // }
 
-  marketData = async (userCoinz) => {
+  fetchMarketData = async (userCoinz) => {
     try {
       if (!userCoinz || Object.keys(userCoinz).length === 0) {
-        this.setState({ marketData: {} });
-        return;
+        return {};
       }
 
       let marketData = {};
@@ -279,14 +281,12 @@ class App extends Component {
         usersCoinList = allCoins.filter(coin => userTickers.includes(coin.symbol));
       } catch (e) {
         console.warn('Failed to fetch coins list', e);
-        this.setState({ marketData: {} });
-        return;
+        return {};
       }
 
       const usersCoinIds = usersCoinList.map(coin => coin.id);
       if (usersCoinIds.length === 0) {
-        this.setState({ marketData: {} });
-        return;
+        return {};
       }
 
       // @TODO modify price based on userPref
@@ -298,8 +298,7 @@ class App extends Component {
         usersMarketData = await priceRes.json();
       } catch (e) {
         console.warn('Failed to fetch price data', e);
-        this.setState({ marketData: {} });
-        return;
+        return {};
       }
 
       userTickers.forEach(t => {
@@ -324,18 +323,50 @@ class App extends Component {
           console.log(e, `ticker not found in market data: ${t}`)
         }
       });
-      this.setState({ marketData });
+      return marketData;
+    } catch (e) {
+      console.warn('marketData error', e);
+      return {};
+    }
+  }
+
+  marketData = async (userCoinz) => {
+    try {
+      const nextMarketData = await this.fetchMarketData(userCoinz);
+      this.setState({ marketData: nextMarketData });
     } catch (e) {
       console.warn('marketData error', e);
       this.setState({ marketData: {} });
     }
   }
 
+  startMarketDataPolling = (userCoinz) => {
+    if (this._marketDataInterval) {
+      clearInterval(this._marketDataInterval);
+    }
+    this._marketDataInterval = setInterval(() => {
+      const newMarketData = this.fetchMarketData(userCoinz);
+      this.checkAlerts(newMarketData)
+    }, 1000 * 30);
+  }
+
+  checkAlerts = (newMarketData) => {
+    const activeAlerts = Array.from(new Set(this.state.alerts.filter(a => a.status === 'active')));
+    activeAlerts.forEach(alert => {
+      const shouldTrigger = shouldTriggerAlert(alert, newMarketData, this.state.exchangeRate);
+      if (shouldTrigger) {
+        showNotification('success', `${alert.coin} ${alert.condition} ${alert.targetPrice} ${this.state.pref.currency} reached`);
+        this.updateAlertStatus(alert.id, 'triggered');
+      }
+    });
+  }
+
   readLocalStorage() {
     const userCoinData = localStorage.coinz ? JSON.parse(localStorage.coinz) : {};
     const userPref = localStorage.pref ? JSON.parse(localStorage.pref) : { currency: "USD" };
+    const userAlert = localStorage.alerts ? JSON.parse(localStorage.alerts) : [];
 
-    return { coinz: userCoinData, pref: userPref }
+    return { coinz: userCoinData, pref: userPref, alerts: userAlert }
   }
 
   fetchExchangeRates = () => {
@@ -455,9 +486,11 @@ class App extends Component {
           const jsonGaia = JSON.parse(gaia);
           const gaiaCoinz = jsonGaia.coinz && jsonGaia.coinz || {};
           const gaiaPref = jsonGaia.pref && jsonGaia.pref || { currency: "USD" };
+          const gaiaAlert = jsonGaia.alerts && jsonGaia.alerts || [];
           const userData = {
             coinz: gaiaCoinz,
-            pref: gaiaPref
+            pref: gaiaPref,
+            alerts: gaiaAlert,
           };
           return userData;
         })
@@ -496,11 +529,17 @@ class App extends Component {
       this.marketData(storage.coinz);
       this.setState({
         coinz: storage.coinz,
-        pref: storage.pref
+        pref: storage.pref,
+        alerts: storage.alerts,
       });
       this.fetchExchangeRates();
     }
+  }
 
+  componentDidUpdate(prevProps, prevState) {
+    if (prevState.coinz !== this.state.coinz && Object.keys(this.state.coinz).length !== 0) {
+      this.startMarketDataPolling(this.state.coinz);
+    }
   }
 
   saveNewPref = (name, value) => {
@@ -565,6 +604,69 @@ class App extends Component {
     }
   }
 
+  persistAlerts = async (nextAlerts) => {
+    try {
+      if (isUserSignedIn()) {
+        const data = {
+          coinz: this.state.coinz,
+          pref: this.state.pref,
+          alerts: nextAlerts,
+        };
+        const encrypt = true;
+        await putFile(this.state.gaiaStorage, JSON.stringify(data), encrypt);
+      } else {
+        localStorage.setItem('alerts', JSON.stringify(nextAlerts));
+      }
+      return true;
+    } catch (ex) {
+      console.log('Failed to save alerts', ex);
+      return false;
+    }
+  }
+
+  addAlert = async (data) => {
+    const {
+      coin,
+      condition,
+      targetPrice,
+    } = data;
+
+    const newAlert = {
+      id: Date.now(),
+      coin,
+      condition,
+      targetPrice,
+      status: 'active',
+      createdAt: Date.now(),
+    };
+    const nextAlerts = [...this.state.alerts, newAlert];
+    const ok = await this.persistAlerts(nextAlerts);
+    if (ok) {
+      this.setState({ alerts: nextAlerts })
+      showNotification('success', `Alert saved: ${coin} ${condition} ${targetPrice} ${this.state.pref.currency}`);
+    } else {
+      showNotification('error', 'Failed to save alert');
+    }
+  }
+
+  updateAlertStatus = async (id, status) => {
+    const next = this.state.alerts.map(a => a.id === id ? { ...a, status } : a);
+    const ok = await this.persistAlerts(next);
+    if (ok) this.setState({ alerts: next });
+    return ok;
+  }
+
+  removeAlert = async (id) => {
+    const nextAlerts = this.state.alerts.filter(a => a.id !== id);
+    const ok = await this.persistAlerts(nextAlerts);
+    if (ok) {
+      this.setState({ alerts: nextAlerts })
+      showNotification('info', 'Alert removed');
+    } else {
+      showNotification('error', 'Failed to remove alert');
+    }
+  }
+
   render() {
     const exchangeRate = this.state.exchangeRates[this.state.pref.currency]
       ? this.state.exchangeRates[this.state.pref.currency]
@@ -589,6 +691,10 @@ class App extends Component {
                   language={this.state.pref && this.state.pref.language || "EN"}
                   addCoinz={this.addCoinz}
                   saveNewPref={this.saveNewPref}
+                  alerts={this.state.alerts}
+                  addAlert={this.addAlert}
+                  updateAlertStatus={this.updateAlertStatus}
+                  removeAlert={this.removeAlert}
                 />
               }
             />
@@ -618,6 +724,10 @@ class App extends Component {
                   deleteCoin={this.deleteCoin}
                   currency={this.state.pref && this.state.pref.currency || "USD"}
                   language={this.state.pref && this.state.pref.language || "EN"}
+                  alerts={this.state.alerts}
+                  addAlert={this.addAlert}
+                  updateAlertStatus={this.updateAlertStatus}
+                  removeAlert={this.removeAlert}
                 />
               }
             />
@@ -649,6 +759,20 @@ class App extends Component {
             />
 
             <Route path="/supportedcoins" component={SupportedCoins} />
+
+            <Route path="/analytics"
+              render={
+                (props) => <Analytics {...props}
+                  coinz={this.state.coinz}
+                  marketData={this.state.marketData}
+                  exchangeRate={exchangeRate}
+                  totalPortfolio={totalPortfolio}
+                  currency={this.state.pref && this.state.pref.currency || "USD"}
+                  language={this.state.pref && this.state.pref.language || "EN"}
+                  blockstack={this.state.blockstack}
+                />
+              }
+            />
 
           </Switch>
         </div>

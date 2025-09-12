@@ -10,7 +10,19 @@ import CoinList from '../Components/CoinList';
 import CurrencyPref from '../Components/CurrencyPref';
 import AddCoin from '../Components/AddCoin';
 import {translationStrings} from '../Utils/i18n';
+import AlertNotification from '../Components/AlertNotification';
+import styled from "styled-components";
 
+const Button = styled.button`
+  padding: 8px 16px;
+  border: 1px solid #555;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #21ce99, #00d4aa);
+  color: white;
+  cursor: pointer;
+  margin-bottom: 20px;
+  margin-left: 20px;
+`;
 
 class Home extends Component {
 
@@ -74,6 +86,17 @@ class Home extends Component {
             coinz={this.props.coinz}
             currency={this.props.currency}
             exchangeRate={this.props.exchangeRate}
+          />
+
+          <Button onClick={() => window.location.href = '/analytics'}>
+            📊 Analytics
+          </Button>
+
+          <AlertNotification
+            currency={this.props.currency}
+            alerts={this.props.alerts}
+            updateAlertStatus={this.props.updateAlertStatus}
+            removeAlert={this.props.removeAlert}
           />
           
           <SearchFilter

@@ -94,7 +94,7 @@ const QuickActions = ({ coin, onEdit, onRemove, onToggleFavorite, isFavorite, on
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    // document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
